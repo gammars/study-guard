@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StudyGuard 家长端</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-role="parent">
+  <main class="app-shell parent-shell">
+    <header class="top-nav">
+      <a class="brand-lockup" href="/parent" aria-label="StudyGuard 家长端">
+        <span class="brand-mark">SG</span>
+        <span>
+          <strong>StudyGuard</strong>
+          <small>家长端</small>
+        </span>
+      </a>
+      <div class="nav-actions">
+        <span class="system-pill success"><i></i>设备在线</span>
+        <time class="nav-time" id="parentClock">--</time>
+        <a class="nav-link" href="/student">学生端</a>
+      </div>
+    </header>
+
+    <section class="parent-overview surface-card">
+      <div class="overview-copy">
+        <span class="eyebrow">Parent Dashboard</span>
+        <h1>学习监督系统</h1>
+        <p>实时查看孩子是否在座、学习计时、环境数据与 Agent 工具调用轨迹。</p>
+      </div>
+      <div class="overview-status">
+        <span>当前状态</span>
+        <strong id="statusText">--</strong>
+        <em id="parentStatusSub">--</em>
+      </div>
+    </section>
+
+    <section class="metric-grid parent-metrics">
+      <article class="metric-card accent-green">
+        <span class="metric-icon user"></span>
+        <div>
+          <p>当前座位</p>
+          <strong id="seatText">--</strong>
+        </div>
+      </article>
+      <article class="metric-card accent-blue">
+        <span class="metric-icon clock"></span>
+        <div>
+          <p>今日专注</p>
+          <strong id="parentFocusTime">--</strong>
+        </div>
+      </article>
+      <article class="metric-card accent-coral">
+        <span class="metric-icon chair"></span>
+        <div>
+          <p>今日离座</p>
+          <strong><span id="awayCount">0</span> 次</strong>
+        </div>
+      </article>
+      <article class="metric-card accent-teal">
+        <span class="metric-icon leaf"></span>
+        <div>
+          <p>环境温湿度</p>
+          <strong id="envText">--℃ / --%</strong>
+        </div>
+      </article>
+      <article class="metric-card accent-amber">
+        <span class="metric-icon bell"></span>
+        <div>
+          <p>今日提醒</p>
+          <strong><span id="alertCount">0</span> 次</strong>
+        </div>
+      </article>
+    </section>
+
+    <section class="parent-dashboard">
+      <article class="surface-card camera-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Live View</span>
+            <h2>实时画面</h2>
+          </div>
+          <button class="ghost-button" id="cameraToggle">开启摄像头</button>
+        </div>
+        <div class="parent-video-box">
+          <div class="camera-placeholder" id="cameraPlaceholder">摄像头未开启</div>
+          <img id="parentVideo" class="video-feed hidden" data-src="/api/video" alt="实时摄像头画面">
+          <span class="vision-tag" id="parentPresenceTag">检测状态：--</span>
+        </div>
+        <div class="camera-facts">
+          <span>检测到人：<strong id="parentPresenceText">--</strong></span>
+          <span>距离传感器：<strong id="parentDistanceInline">-- cm</strong></span>
+          <span>最后更新：<strong id="parentLastUpdated">--</strong></span>
+        </div>
+      </article>
+
+      <article class="surface-card trend-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Trend</span>
+            <h2>状态趋势</h2>
+          </div>
+          <div class="trend-controls">
+            <select class="trend-range" id="trendRange">
+              <option value="10m">10 分钟</option>
+              <option value="30m" selected>30 分钟</option>
+              <option value="1h">1 小时</option>
+              <option value="3h">3 小时</option>
+              <option value="24h">24 小时</option>
+              <option value="custom">自定义</option>
+            </select>
+            <div class="custom-trend hidden" id="customTrendControls">
+              <input type="datetime-local" id="trendStart">
+              <input type="datetime-local" id="trendEnd">
+            </div>
+          </div>
+        </div>
+        <div class="trend-legend">
+          <span><i class="dot green"></i>在座学习</span>
+          <span><i class="dot amber"></i>不确定学习</span>
+          <span><i class="dot blue"></i>休息</span>
+          <span><i class="dot coral"></i>离座/提醒</span>
+          <span><i class="dot gray"></i>无数据</span>
+        </div>
+        <div class="timeline-chart" role="img" aria-label="学习状态时间轴">
+          <div class="timeline-track" id="timelineTrack"></div>
+          <div class="timeline-empty" id="timelineEmpty">暂无采样数据</div>
+        </div>
+        <div class="timeline-labels">
+          <span id="trendStartLabel">--</span>
+          <span id="trendMiddleLabel">--</span>
+          <span id="trendEndLabel">--</span>
+        </div>
+      </article>
+
+      <article class="surface-card quick-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Actions</span>
+            <h2>快捷操作</h2>
+          </div>
+        </div>
+        <button class="quick-action blue" data-action="photo"><span class="metric-icon camera"></span><strong>拍照记录</strong></button>
+        <button class="quick-action teal" data-action="env"><span class="metric-icon leaf"></span><strong>读取环境</strong></button>
+        <button class="quick-action purple" data-action="remind"><span class="metric-icon bell"></span><strong>提醒学生</strong></button>
+        <button class="quick-action amber" data-action="report"><span class="metric-icon report"></span><strong>生成日报</strong></button>
+      </article>
+
+      <article class="surface-card parent-chat-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">MCP Agent</span>
+            <h2>AI 问答助手</h2>
+          </div>
+        </div>
+        <div class="parent-chat-window" id="chatHistory">
+          <div class="parent-chat user">
+            <div>今天孩子离座了几次？每次多长时间？</div>
+            <time>示例</time>
+          </div>
+          <div class="parent-chat agent" id="replyText">查询结果会显示在这里。</div>
+        </div>
+        <div class="parent-chat-input">
+          <input id="chatInput" placeholder="请输入您的问题...">
+          <button id="chatSend" class="primary-button">发送</button>
+        </div>
+      </article>
+
+      <article class="surface-card focus-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Focus</span>
+            <h2>专注分布</h2>
+          </div>
+          <span class="soft-badge" id="parentStatsTime">--</span>
+        </div>
+        <div class="donut-wrap">
+          <div class="donut-chart">
+            <span>总计</span>
+            <strong id="parentDonutTotal">--</strong>
+          </div>
+          <div class="donut-legend">
+            <p><i class="dot green"></i><strong>在座学习</strong><span id="studyingPct">--%</span></p>
+            <p><i class="dot amber"></i><strong>不确定学习</strong><span id="uncertainPct">--%</span></p>
+            <p><i class="dot blue"></i><strong>休息</strong><span id="breakPct">--%</span></p>
+            <p><i class="dot coral"></i><strong>离座/提醒</strong><span id="awayPct">--%</span></p>
+            <p><i class="dot gray"></i><strong>无数据</strong><span id="noDataPct">--%</span></p>
+          </div>
+        </div>
+        <div class="progress-block">
+          <span>本轮进度</span>
+          <div class="progress-track"><i id="parentProgress"></i></div>
+          <em id="parentTargetText">--</em>
+        </div>
+      </article>
+
+      <article class="surface-card logs-panel">
+        <div class="section-head compact">
+          <div>
+            <span class="eyebrow">Logs</span>
+            <h2>最近日志</h2>
+          </div>
+        </div>
+        <div class="log-list parent-log-list" id="logList"></div>
+      </article>
+
+      <article class="surface-card trace-panel">
+        <div class="section-head compact">
+          <div>
+            <span class="eyebrow">Tools</span>
+            <h2>Agent 工具调用轨迹</h2>
+          </div>
+        </div>
+        <div class="trace-list parent-trace-list" id="traceList"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="/static/main.js"></script>
+</body>
+</html>

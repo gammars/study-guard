@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StudyGuard 学生端</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-role="student">
+  <main class="app-shell student-shell">
+    <header class="top-nav">
+      <a class="brand-lockup" href="/student" aria-label="StudyGuard 学生端">
+        <span class="brand-mark">SG</span>
+        <span>
+          <strong>StudyGuard</strong>
+          <small>学生端</small>
+        </span>
+      </a>
+      <div class="nav-actions">
+        <span class="system-pill success"><i></i>设备在线</span>
+        <time class="nav-time" id="parentClock">--</time>
+        <a class="nav-link" href="/parent">家长端</a>
+      </div>
+    </header>
+
+    <section class="metric-grid student-metrics">
+      <article class="metric-card accent-blue">
+        <span class="metric-icon cap"></span>
+        <div>
+          <p>当前状态</p>
+          <strong id="statusText">--</strong>
+          <em>保持专注状态</em>
+        </div>
+      </article>
+      <article class="metric-card accent-blue progress-metric">
+        <span class="metric-icon clock"></span>
+        <div>
+          <p id="phaseTitle">本轮学习</p>
+          <strong id="elapsedText">--</strong>
+          <div class="mini-progress"><i id="studentTopProgress"></i></div>
+          <em><span id="remainingLabel">剩余</span> <span id="remainingText">--</span></em>
+        </div>
+      </article>
+      <article class="metric-card accent-green">
+        <span class="metric-icon light"></span>
+        <div>
+          <p>RGB 状态</p>
+          <strong id="ledText">--</strong>
+          <em>专注模式已开启</em>
+        </div>
+      </article>
+      <article class="metric-card accent-teal">
+        <span class="metric-icon leaf"></span>
+        <div>
+          <p>环境温湿度</p>
+          <strong id="envText">--℃ / --%</strong>
+          <em>环境数据实时读取</em>
+        </div>
+      </article>
+      <article class="metric-card accent-blue">
+        <span class="metric-icon clock"></span>
+        <div>
+          <p>累计学习时长</p>
+          <strong id="studentTodayFocus">--</strong>
+          <em>今日总时长</em>
+        </div>
+      </article>
+    </section>
+
+    <section class="student-dashboard">
+      <article class="surface-card student-timeline-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Timeline</span>
+            <h2>学习状态时间轴</h2>
+          </div>
+          <div class="trend-controls">
+            <select class="trend-range" id="trendRange">
+              <option value="10m">10 分钟</option>
+              <option value="30m" selected>30 分钟</option>
+              <option value="1h">1 小时</option>
+              <option value="3h">3 小时</option>
+              <option value="24h">24 小时</option>
+              <option value="custom">自定义</option>
+            </select>
+            <div class="custom-trend hidden" id="customTrendControls">
+              <input type="datetime-local" id="trendStart">
+              <input type="datetime-local" id="trendEnd">
+            </div>
+          </div>
+        </div>
+        <div class="trend-legend">
+          <span><i class="dot green"></i>在座学习</span>
+          <span><i class="dot blue"></i>休息</span>
+          <span><i class="dot coral"></i>离座/提醒</span>
+          <span><i class="dot gray"></i>无数据</span>
+        </div>
+        <div class="timeline-chart" role="img" aria-label="学习状态时间轴">
+          <div class="timeline-track" id="timelineTrack"></div>
+          <div class="timeline-empty" id="timelineEmpty">暂无采样数据</div>
+        </div>
+        <div class="timeline-labels">
+          <span id="trendStartLabel">--</span>
+          <span id="trendMiddleLabel">--</span>
+          <span id="trendEndLabel">--</span>
+        </div>
+      </article>
+
+      <article class="surface-card student-overview-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Today</span>
+            <h2>今日学习概览</h2>
+          </div>
+          <span class="soft-badge" id="parentStatsTime">--</span>
+        </div>
+        <div class="donut-wrap student-donut-wrap">
+          <div class="donut-chart">
+            <span>总计</span>
+            <strong id="parentDonutTotal">--</strong>
+          </div>
+          <div class="donut-legend">
+            <p><i class="dot green"></i><strong>在座学习</strong><span id="studyingPct">--%</span></p>
+            <p><i class="dot blue"></i><strong>休息</strong><span id="breakPct">--%</span></p>
+            <p><i class="dot coral"></i><strong>离座/提醒</strong><span id="awayPct">--%</span></p>
+            <p><i class="dot gray"></i><strong>无数据</strong><span id="noDataPct">--%</span></p>
+          </div>
+        </div>
+        <div class="progress-block">
+          <span>本轮进度</span>
+          <div class="progress-track"><i id="parentProgress"></i></div>
+          <em id="parentTargetText">--</em>
+        </div>
+      </article>
+
+      <article class="surface-card message-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">System</span>
+            <h2>系统消息</h2>
+          </div>
+          <span class="soft-badge">实时</span>
+        </div>
+        <div class="student-message-list" id="messageList"></div>
+      </article>
+
+      <article class="surface-card agent-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Agent</span>
+            <h2>学习助手</h2>
+          </div>
+          <span class="soft-badge purple">MCP</span>
+        </div>
+        <div class="dialog-box" id="chatHistory">
+          <div class="chat-empty">输入问题后，学习助手会在这里回复。</div>
+        </div>
+        <section class="composer-card surface-card">
+          <input id="chatInput" placeholder="输入消息...">
+          <button id="voiceInput" class="voice-button" type="button" title="语音输入" aria-label="语音输入"><span></span></button>
+          <button id="chatSend" class="primary-button">发送</button>
+        </section>
+      </article>
+
+      <article class="surface-card student-action-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Actions</span>
+            <h2>快捷操作</h2>
+          </div>
+        </div>
+        <section class="student-actions">
+          <button class="action-button start" data-action="start"><span></span>开始学习</button>
+          <button class="action-button end" data-action="end"><span></span>结束学习</button>
+          <button class="action-button return" data-action="return"><span></span>我回来了</button>
+          <button class="action-button report" data-action="report"><span></span>生成总结</button>
+        </section>
+      </article>
+    </section>
+  </main>
+
+  <script src="/static/main.js"></script>
+</body>
+</html>

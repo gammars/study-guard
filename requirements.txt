@@ -1,0 +1,10 @@
+flask
+flask-cors
+httpx
+python-dotenv
+mcp
+opencv-python
+numpy
+gpiozero
+adafruit-circuitpython-dht
+edge-tts
