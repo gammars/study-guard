@@ -65,6 +65,14 @@
           <em>今日总时长</em>
         </div>
       </article>
+      <article class="metric-card accent-purple default-settings-card">
+        <span class="metric-icon report"></span>
+        <div>
+          <p>默认设置</p>
+          <strong id="studentDefaultStudy">--</strong>
+          <em>休息 <span id="studentDefaultBreak">--</span></em>
+        </div>
+      </article>
     </section>
 
     <section class="student-dashboard">
@@ -177,6 +185,43 @@
         </section>
       </article>
     </section>
+
+    <div class="report-modal hidden" id="reportModal" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+      <section class="report-dialog surface-card">
+        <div class="report-header">
+          <div>
+            <span class="eyebrow">Daily Report</span>
+            <h2 id="reportTitle">StudyGuard 学习日报</h2>
+            <p id="reportSubtitle">正在生成...</p>
+          </div>
+          <button class="ghost-button compact-button" id="closeReport">关闭</button>
+        </div>
+        <div class="report-loading" id="reportLoading">正在整理今日学习数据...</div>
+        <div class="report-content hidden" id="reportContent">
+          <div class="report-score-card">
+            <span>专注评分</span>
+            <strong id="reportFocusScore">--</strong>
+            <em>基于有效学习、离座与提醒综合评估</em>
+          </div>
+          <div class="report-metrics">
+            <article><span>今日学习总时长</span><strong id="reportTotalStudy">--</strong></article>
+            <article><span>有效学习时长</span><strong id="reportEffectiveStudy">--</strong></article>
+            <article><span>离座次数</span><strong id="reportAwayCount">--</strong></article>
+            <article><span>最长离座时长</span><strong id="reportLongestAway">--</strong></article>
+            <article><span>提醒次数</span><strong id="reportAlertCount">--</strong></article>
+            <article><span>环境均值 / 最近环境</span><strong id="reportEnvironment">--</strong></article>
+          </div>
+          <section class="report-section">
+            <h3>异常事件列表</h3>
+            <div class="report-event-list" id="reportEvents"></div>
+          </section>
+          <section class="report-section advice">
+            <h3>AI 学习建议</h3>
+            <p id="reportAdvice">--</p>
+          </section>
+        </div>
+      </section>
+    </div>
   </main>
 
   <script src="/static/main.js"></script>

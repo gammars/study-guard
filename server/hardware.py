@@ -25,6 +25,7 @@ class Hardware:
         self._yolo_model_path = Path(os.getenv("STUDYGUARD_YOLO_MODEL", self.root / "models" / "yolov5n.onnx"))
         self._yolo_confidence = float(os.getenv("STUDYGUARD_YOLO_CONFIDENCE", "0.35"))
         self._yolo_nms = float(os.getenv("STUDYGUARD_YOLO_NMS", "0.45"))
+        self.distance_threshold_cm = float(os.getenv("STUDYGUARD_DISTANCE_THRESHOLD_CM", "40"))
         self._dht_retries = max(1, int(os.getenv("STUDYGUARD_DHT_RETRIES", "3")))
         self._dht_retry_delay = float(os.getenv("STUDYGUARD_DHT_RETRY_DELAY", "0.35"))
         self.led_color = "off"
@@ -108,20 +109,21 @@ class Hardware:
                     24,
                     23,
                     max_distance=1,
-                    threshold_distance=0.40,
+                    threshold_distance=self.distance_threshold_cm / 100,
                 )
             distance_cm = round(self._distance_sensor.distance * 100, 1)
+            threshold_cm = self.distance_threshold_cm
             return {
                 "distance_cm": distance_cm,
-                "distance_present": distance_cm <= 40,
-                "threshold_cm": 40,
+                "distance_present": distance_cm <= threshold_cm,
+                "threshold_cm": threshold_cm,
                 "demo": False,
             }
         except Exception as exc:
             return {
                 "distance_cm": None,
                 "distance_present": False,
-                "threshold_cm": 40,
+                "threshold_cm": self.distance_threshold_cm,
                 "demo": False,
                 "available": False,
                 "error": str(exc),
@@ -315,6 +317,17 @@ finally:
                 return {"success": True, "current_color": color, "demo": True, "error": str(exc), "meaning": led_meaning(color)}
         return {"success": True, "current_color": color, "demo": True, "meaning": led_meaning(color)}
 
+    def apply_runtime_settings(self, distance_threshold_cm=None, yolo_confidence_threshold=None):
+        if distance_threshold_cm is not None:
+            self.distance_threshold_cm = max(5.0, min(200.0, float(distance_threshold_cm)))
+        if yolo_confidence_threshold is not None:
+            self._yolo_confidence = max(0.05, min(0.95, float(yolo_confidence_threshold)))
+        return {
+            "success": True,
+            "distance_threshold_cm": self.distance_threshold_cm,
+            "yolo_confidence_threshold": self._yolo_confidence,
+        }
+
     def set_demo_present(self, present):
         self.demo_present = bool(present)
         return {"success": True, "demo_present": self.demo_present}
@@ -375,10 +388,11 @@ finally:
 
     def _demo_distance(self):
         distance_cm = random.choice([38, 42, 47, 55]) if self.demo_present else random.choice([112, 135, 160])
+        threshold_cm = self.distance_threshold_cm
         return {
             "distance_cm": distance_cm,
-            "distance_present": distance_cm <= 40,
-            "threshold_cm": 40,
+            "distance_present": distance_cm <= threshold_cm,
+            "threshold_cm": threshold_cm,
             "demo": True,
         }
 

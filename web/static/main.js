@@ -35,6 +35,14 @@ async function postJson(url, payload) {
 }
 
 async function runAction(action) {
+  if (action === "settings") {
+    await openSettingsPanel();
+    return;
+  }
+  if (action === "report") {
+    await openReportPanel();
+    return;
+  }
   const payload = { action };
   if (action === "start") {
     const minutes = prompt("目标学习分钟数", "1");
@@ -54,11 +62,132 @@ async function runAction(action) {
   await refreshState();
 }
 
+async function openReportPanel() {
+  const modal = $("reportModal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  if ($("reportLoading")) {
+    $("reportLoading").classList.remove("hidden");
+    $("reportLoading").textContent = "正在整理今日学习数据...";
+  }
+  if ($("reportContent")) $("reportContent").classList.add("hidden");
+  if ($("reportSubtitle")) $("reportSubtitle").textContent = "正在生成...";
+  try {
+    const data = await fetch(`/api/report/ui?role=${encodeURIComponent(role)}`).then((res) => res.json());
+    if (!data.success) throw new Error(data.error || "生成日报失败");
+    renderReport(data);
+    loadReportAdvice(data);
+  } catch (error) {
+    if ($("reportLoading")) $("reportLoading").textContent = `日报生成失败：${error?.message || "unknown"}`;
+  }
+}
+
+function closeReportPanel() {
+  if ($("reportModal")) $("reportModal").classList.add("hidden");
+}
+
+function renderReport(data) {
+  const summary = data.summary || {};
+  const env = data.environment || {};
+  if ($("reportLoading")) $("reportLoading").classList.add("hidden");
+  if ($("reportContent")) $("reportContent").classList.remove("hidden");
+  if ($("reportSubtitle")) $("reportSubtitle").textContent = `${data.date || "--"} 生成于 ${timeOnly(data.generated_at)}`;
+  if ($("reportFocusScore")) $("reportFocusScore").textContent = `${summary.focus_score ?? 0}`;
+  if ($("reportTotalStudy")) $("reportTotalStudy").textContent = summary.total_study_text || "--";
+  if ($("reportEffectiveStudy")) $("reportEffectiveStudy").textContent = summary.effective_study_text || "--";
+  if ($("reportAwayCount")) $("reportAwayCount").textContent = `${summary.away_count ?? 0} 次`;
+  if ($("reportLongestAway")) $("reportLongestAway").textContent = summary.longest_away_text || "--";
+  if ($("reportAlertCount")) $("reportAlertCount").textContent = `${summary.alert_count ?? 0} 次`;
+  if ($("reportEnvironment")) {
+    $("reportEnvironment").innerHTML = `${escapeHtml(env.average_text || "暂无环境均值")}<small>最近 ${escapeHtml(env.recent_text || "暂无最近环境")}</small>`;
+  }
+  if ($("reportAdvice")) $("reportAdvice").textContent = data.advice || "正在调用大模型生成个性化建议...";
+  renderReportEvents(data.abnormal_events?.items || []);
+}
+
+async function loadReportAdvice(report) {
+  try {
+    const data = await postJson("/api/report/advice", { role, report });
+    if ($("reportAdvice")) $("reportAdvice").textContent = data.advice || "暂无建议";
+  } catch (error) {
+    if ($("reportAdvice")) {
+      $("reportAdvice").textContent = `AI 建议生成失败：${error?.message || "unknown"}。可先查看上方结构化学习数据。`;
+    }
+  }
+}
+
+function renderReportEvents(items) {
+  const target = $("reportEvents");
+  if (!target) return;
+  target.innerHTML = (items || []).slice(0, 8).map((item) => `
+    <article class="report-event ${escapeHtml(item.severity || "medium")}">
+      <div>
+        <strong>${escapeHtml(item.title || "--")}</strong>
+        <p>${escapeHtml(item.summary || "暂无详情")}</p>
+      </div>
+      <span>${escapeHtml(item.status || "--")}</span>
+      <time>${escapeHtml(item.time_label || timeOnly(item.time))}</time>
+    </article>
+  `).join("") || `<div class="report-empty">今日暂无异常事件</div>`;
+}
+
+async function openSettingsPanel() {
+  const modal = $("settingsModal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  await loadSettings();
+}
+
+function closeSettingsPanel() {
+  if ($("settingsModal")) $("settingsModal").classList.add("hidden");
+}
+
+async function loadSettings() {
+  const data = await fetch("/api/settings").then((res) => res.json());
+  if ($("settingStudyMinutes")) $("settingStudyMinutes").value = data.default_target_minutes ?? "";
+  if ($("settingBreakSeconds")) $("settingBreakSeconds").value = data.default_break_seconds ?? "";
+  if ($("settingDistanceThreshold")) $("settingDistanceThreshold").value = data.distance_threshold_cm ?? "";
+  if ($("settingYoloThreshold")) $("settingYoloThreshold").value = data.yolo_confidence_threshold ?? "";
+  if ($("settingsPath")) $("settingsPath").textContent = `配置文件：${data.settings_path || "logs/settings.json"}`;
+}
+
+async function saveSettings() {
+  const button = $("saveSettings");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "保存中...";
+  }
+  try {
+    const payload = {
+      default_target_minutes: Number($("settingStudyMinutes")?.value || 1),
+      default_break_seconds: Number($("settingBreakSeconds")?.value || 30),
+      distance_threshold_cm: Number($("settingDistanceThreshold")?.value || 40),
+      yolo_confidence_threshold: Number($("settingYoloThreshold")?.value || 0.35),
+    };
+    const data = await postJson("/api/settings", payload);
+    if (!data.success) throw new Error(data.error || "保存失败");
+    await loadSettings();
+    await refreshState();
+    closeSettingsPanel();
+  } catch (error) {
+    alert(`参数保存失败：${error?.message || "unknown"}`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "保存参数";
+    }
+  }
+}
+
 async function sendChat() {
   const input = $("chatInput");
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
+  await sendChatText(text);
+}
+
+async function sendChatText(text) {
   const assistant = appendStreamingChat(text);
   await streamChat(text, assistant);
   await refreshState();
@@ -98,6 +227,8 @@ async function stopVoiceRecording() {
     if (text && $("chatInput")) {
       $("chatInput").value = text;
       $("chatInput").focus();
+      button.title = "正在发送";
+      await sendChat();
     }
   } catch (error) {
     alert(`语音识别失败：${error?.message || "unknown"}`);
@@ -418,6 +549,42 @@ function renderLogs(logs) {
   ).join("") || `<div class="log">暂无日志</div>`;
 }
 
+function renderAbnormalEvents(data) {
+  const target = $("abnormalList");
+  if (!target) return;
+  const items = data?.items || [];
+  if ($("abnormalCount")) $("abnormalCount").textContent = `${Number(data?.total || 0)} 条`;
+  target.innerHTML = items.map((item) => {
+    const meta = abnormalMeta(item);
+    return `<article class="abnormal-item ${escapeHtml(item.kind || "alert")} ${escapeHtml(item.severity || "medium")}">
+      <div class="abnormal-icon"></div>
+      <div class="abnormal-body">
+        <div class="abnormal-title">
+          <strong>${escapeHtml(item.title || "--")}</strong>
+          <span>${escapeHtml(item.status || "--")}</span>
+        </div>
+        <p>${escapeHtml(item.summary || "暂无详情")}</p>
+        <div class="abnormal-meta">${meta}</div>
+      </div>
+      <time>${escapeHtml(item.time_label || timeOnly(item.time))}</time>
+    </article>`;
+  }).join("") || `<div class="abnormal-empty">今日暂无异常事件</div>`;
+}
+
+function abnormalMeta(item) {
+  const parts = [];
+  if (item.kind === "away") {
+    parts.push(`开始 ${escapeHtml(item.start_label || "--")}`);
+    if (item.alert_label) parts.push(`提醒 ${escapeHtml(item.alert_label)}`);
+    if (item.return_label) parts.push(`回座 ${escapeHtml(item.return_label)}`);
+    parts.push(`持续 ${escapeHtml(item.duration_text || "持续中")}`);
+    if (item.distance_cm != null) parts.push(`距离 ${escapeHtml(item.distance_cm)}cm`);
+  } else {
+    parts.push(`时间 ${escapeHtml(item.time_label || timeOnly(item.time))}`);
+  }
+  return parts.map((part) => `<span>${part}</span>`).join("");
+}
+
 function renderTrace(trace) {
   const target = $("traceList");
   if (!target) return;
@@ -432,7 +599,6 @@ async function refreshState() {
   const data = await fetch(stateUrl).then((res) => res.json());
   $("statusText").textContent = role === "student" ? studentStatusText(data.status) : parentStatusText(data);
   if ($("statusMirror")) $("statusMirror").textContent = studentStatusText(data.status);
-  if ($("seatText")) $("seatText").textContent = data.seat_text;
   const countSource = role === "parent" ? (data.today_stats || data) : data;
   if ($("awayCount")) $("awayCount").textContent = countSource.away_count ?? 0;
   if ($("alertCount")) $("alertCount").textContent = countSource.alert_count ?? 0;
@@ -459,6 +625,7 @@ async function refreshState() {
   renderTrend(data.trend);
 
   renderMessages(data.messages);
+  renderAbnormalEvents(data.abnormal_events);
   renderLogs(data.recent_logs);
   renderTrace(data.tool_trace);
   await processVoiceEvents(data.voice_events);
@@ -596,6 +763,8 @@ function renderTimer(data) {
   if ($("parentTargetText")) $("parentTargetText").textContent = data.phase_total_text || formatDuration(phaseTotal);
   if ($("parentStatsTime")) $("parentStatsTime").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false }).slice(0, 5);
   if ($("studentTodayFocus")) $("studentTodayFocus").textContent = data.today_stats?.focus_text || data.elapsed_text || "--";
+  if ($("studentDefaultStudy")) $("studentDefaultStudy").textContent = `${Number(data.default_target_minutes || 0)}分钟`;
+  if ($("studentDefaultBreak")) $("studentDefaultBreak").textContent = formatDuration(data.default_break_seconds || 0);
 }
 
 function renderParentState(data) {
@@ -616,11 +785,41 @@ function renderParentState(data) {
   if ($("parentDistanceText")) $("parentDistanceText").textContent = distance != null ? `距离 ${distance}cm` : "距离 --cm";
   if ($("parentDistanceInline")) $("parentDistanceInline").textContent = distance != null ? `${distance} cm` : "-- cm";
   if ($("parentPresenceText")) $("parentPresenceText").textContent = visionDetected == null ? "--" : visionDetected ? "是" : "否";
-  if ($("parentPresenceTag")) $("parentPresenceTag").textContent = `检测状态：${data.seat_text || "--"}`;
+  if ($("parentPresenceTag")) {
+    $("parentPresenceTag").textContent = data.seat_text || "--";
+    $("parentPresenceTag").className = `detection-status ${detectionStatusClass(data.seat_status)}`;
+  }
+  if ($("parentFusionExplain")) {
+    $("parentFusionExplain").textContent = fusionExplainText(data.seat_status, latestSeat);
+    $("parentFusionExplain").className = `fusion-explain ${detectionStatusClass(data.seat_status)}`;
+  }
   if ($("parentLastUpdated")) $("parentLastUpdated").textContent = new Date().toLocaleString("zh-CN", { hour12: false });
   if ($("parentStatsTime")) $("parentStatsTime").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false }).slice(0, 5);
   if ($("parentDonutTotal")) $("parentDonutTotal").textContent = todayStats.focus_text || data.elapsed_text || "--";
   if ($("envSuggestion")) $("envSuggestion").textContent = env.temperature ? envLevelText(env.level) : "等待读取";
+}
+
+function detectionStatusClass(status) {
+  if (status === "present") return "present";
+  if (status === "away") return "away";
+  return "uncertain";
+}
+
+function fusionExplainText(status, seat) {
+  const confidence = seat?.confidence;
+  if (status === "present") {
+    return "融合判断：超声波距离与 YOLO 视觉均判断有人在座，因此当前为高置信在座。";
+  }
+  if (status === "away") {
+    return "融合判断：超声波距离超过阈值且 YOLO 未检测到人，因此当前为高置信离座。";
+  }
+  if (confidence === "medium") {
+    return "融合判断：超声波与视觉结果冲突，系统暂时标记为不确定，避免误判离座。";
+  }
+  if (confidence === "low") {
+    return "融合判断：至少一个检测源不可用，系统暂时标记为不确定，请检查摄像头或传感器。";
+  }
+  return "融合判断：超声波与视觉结果一致时为高置信；结果冲突时标记为不确定。";
 }
 
 function formatDuration(seconds) {
@@ -723,6 +922,34 @@ if ($("chatSend")) {
 
 if ($("voiceInput")) {
   $("voiceInput").addEventListener("click", toggleVoiceInput);
+}
+
+if ($("closeSettings")) {
+  $("closeSettings").addEventListener("click", closeSettingsPanel);
+}
+
+if ($("closeReport")) {
+  $("closeReport").addEventListener("click", closeReportPanel);
+}
+
+if ($("reloadSettings")) {
+  $("reloadSettings").addEventListener("click", loadSettings);
+}
+
+if ($("saveSettings")) {
+  $("saveSettings").addEventListener("click", saveSettings);
+}
+
+if ($("settingsModal")) {
+  $("settingsModal").addEventListener("click", (event) => {
+    if (event.target === $("settingsModal")) closeSettingsPanel();
+  });
+}
+
+if ($("reportModal")) {
+  $("reportModal").addEventListener("click", (event) => {
+    if (event.target === $("reportModal")) closeReportPanel();
+  });
 }
 
 if ($("chatInput")) {

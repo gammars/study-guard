@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StudyGuard 设备自检</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-role="diagnostics">
+  <main class="app-shell diagnostics-shell">
+    <header class="top-nav">
+      <a class="brand-lockup" href="/diagnostics" aria-label="StudyGuard 设备自检">
+        <span class="brand-mark">SG</span>
+        <span>
+          <strong>StudyGuard</strong>
+          <small>设备自检</small>
+        </span>
+      </a>
+      <div class="nav-actions">
+        <span class="system-pill success"><i></i>诊断中心</span>
+        <a class="nav-link" href="/parent">家长端</a>
+        <a class="nav-link" href="/student">学生端</a>
+      </div>
+    </header>
+
+    <section class="diagnostics-hero surface-card">
+      <div>
+        <span class="eyebrow">Diagnostics</span>
+        <h1>StudyGuard 设备自检</h1>
+        <p>一键检查摄像头、YOLO 视觉、超声波、DHT11、RGB LED、物理按键、Agent/LLM 与日志系统，明确区分真实可用、降级可用和异常状态。</p>
+      </div>
+      <div class="diagnostics-actions">
+        <button class="primary-button" id="runHealth">一键自检</button>
+        <span class="diagnostics-time" id="healthTime">等待检测</span>
+      </div>
+    </section>
+
+    <section class="diagnostics-summary">
+      <article class="summary-card pass">
+        <span>正常</span>
+        <strong id="passCount">0</strong>
+      </article>
+      <article class="summary-card warning">
+        <span>警告</span>
+        <strong id="warningCount">0</strong>
+      </article>
+      <article class="summary-card fail">
+        <span>异常</span>
+        <strong id="failCount">0</strong>
+      </article>
+      <article class="summary-card overall" id="overallCard">
+        <span>总体状态</span>
+        <strong id="overallText">未检测</strong>
+      </article>
+    </section>
+
+    <section class="health-grid" id="healthGrid">
+      <article class="health-empty surface-card">点击“一键自检”开始检查设备状态</article>
+    </section>
+  </main>
+
+  <script src="/static/diagnostics.js"></script>
+</body>
+</html>

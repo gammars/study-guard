@@ -199,16 +199,36 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "query_study_log",
-            "description": "查询学习日志。用于最近日志、今日日志、离座记录、提醒记录、环境记录、开始/结束记录。",
+            "description": "查询学习日志。支持按真实日志类别筛选：AWAY 离座、ALERT 系统提醒、BREAK_START 休息开始、BREAK_END 休息结束、BUTTON 物理按键、CONFIG 配置修改、ENV 环境读取、ERROR 异常、PHOTO 拍照、POMODORO 番茄钟自动进入休息、REMIND 家长提醒、REPORT 日报、RETURN 回座、START 学习开始、STATUS 在座状态、END 学习结束。统计今日离座/提醒时建议使用 limit=50。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query_type": {
                         "type": "string",
-                        "enum": ["recent", "today", "away", "alert", "env", "start", "end"],
+                        "enum": [
+                            "recent",
+                            "today",
+                            "away",
+                            "alert",
+                            "break_start",
+                            "break_end",
+                            "button",
+                            "config",
+                            "env",
+                            "error",
+                            "photo",
+                            "pomodoro",
+                            "remind",
+                            "report",
+                            "return",
+                            "start",
+                            "status",
+                            "end",
+                        ],
+                        "description": "查询范围或日志类型：recent 最近日志；today 今日日志；away 离座；alert 系统离座提醒；break_start 休息开始；break_end 休息结束；button 物理按键；config 配置修改；env 环境读取；error 异常；photo 拍照；pomodoro 自动完成学习进入休息；remind 家长提醒；report 日报；return 回座；start 学习开始；status 在座状态；end 学习结束。",
                     },
                     "date": {"type": "string"},
-                    "limit": {"type": "integer"},
+                    "limit": {"type": "integer", "description": "最多返回条数；默认 50，统计今日记录建议传 50"},
                 },
             },
         },
@@ -239,6 +259,9 @@ class OpenAICompatibleMCPAgent:
 
     def reply(self, text, role="student"):
         return asyncio.run(self.areply(text, role=role))
+
+    def report_advice(self, report_data, role="student"):
+        return asyncio.run(self.areport_advice(report_data, role=role))
 
     def stream_reply(self, text, role="student"):
         loop = asyncio.new_event_loop()
@@ -305,6 +328,29 @@ class OpenAICompatibleMCPAgent:
         final_text = await self._agent_text(messages)
         self._append_history(role, text, final_text)
         return final_text
+
+    async def areport_advice(self, report_data, role="student"):
+        if not self.api_key:
+            return "未配置大模型 API Key，暂无法生成个性化建议。"
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是 StudyGuard 日报建议生成器。基于结构化学习日报数据，"
+                    "输出 2-3 条简短、具体、适合展示在日报卡片里的中文建议。"
+                    "不要调用工具，不要输出 Markdown 表格，不要编造未给出的数据。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"当前查看入口：{role}端。日报数据："
+                    f"{json.dumps(report_data, ensure_ascii=False)[:5000]}"
+                ),
+            },
+        ]
+        response = await self._chat(messages)
+        return response["choices"][0]["message"].get("content") or "今天数据较少，建议保持固定学习节奏，并减少离座中断。"
 
     async def _agent_text(self, messages):
         final_text = ""

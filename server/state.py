@@ -33,6 +33,8 @@ class StudyState:
     led_color: str = "off"
     default_target_minutes: int = 1
     default_break_seconds: int = 30
+    distance_threshold_cm: float = 40.0
+    yolo_confidence_threshold: float = 0.35
     target_minutes: int = 1
     break_seconds: int = 30
     session_id: str | None = None
@@ -85,6 +87,8 @@ class StudyState:
             "led_color": self.led_color,
             "default_target_minutes": self.default_target_minutes,
             "default_break_seconds": self.default_break_seconds,
+            "distance_threshold_cm": self.distance_threshold_cm,
+            "yolo_confidence_threshold": self.yolo_confidence_threshold,
             "target_minutes": self.target_minutes,
             "break_seconds": self.break_seconds,
             "elapsed_seconds": self.current_elapsed(),
@@ -128,8 +132,12 @@ class StudyStore:
             return
         study_minutes = safe_int(settings.get("default_target_minutes")) or self.state.default_target_minutes
         break_seconds = safe_int(settings.get("default_break_seconds")) or self.state.default_break_seconds
+        distance_threshold = safe_float(settings.get("distance_threshold_cm"), self.state.distance_threshold_cm)
+        yolo_confidence = safe_float(settings.get("yolo_confidence_threshold"), self.state.yolo_confidence_threshold)
         self.state.default_target_minutes = clamp(study_minutes, 1, 240)
         self.state.default_break_seconds = clamp(break_seconds, 5, 3600)
+        self.state.distance_threshold_cm = clamp_float(distance_threshold, 5, 200)
+        self.state.yolo_confidence_threshold = clamp_float(yolo_confidence, 0.05, 0.95)
         if not self.state.session_start:
             self.state.target_minutes = self.state.default_target_minutes
             self.state.break_seconds = self.state.default_break_seconds
@@ -138,10 +146,57 @@ class StudyStore:
         settings = {
             "default_target_minutes": self.state.default_target_minutes,
             "default_break_seconds": self.state.default_break_seconds,
+            "distance_threshold_cm": self.state.distance_threshold_cm,
+            "yolo_confidence_threshold": self.state.yolo_confidence_threshold,
             "updated_at": now_text(),
         }
         self.settings_file.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return settings
+
+    def current_settings(self):
+        return {
+            "success": True,
+            "default_target_minutes": self.state.default_target_minutes,
+            "default_break_seconds": self.state.default_break_seconds,
+            "default_break_minutes": round(self.state.default_break_seconds / 60, 2),
+            "distance_threshold_cm": self.state.distance_threshold_cm,
+            "yolo_confidence_threshold": self.state.yolo_confidence_threshold,
+            "settings_path": str(self.settings_file),
+        }
+
+    def update_system_settings(
+        self,
+        study_minutes=None,
+        break_seconds=None,
+        break_minutes=None,
+        distance_threshold_cm=None,
+        yolo_confidence_threshold=None,
+    ):
+        state = self.state
+        if study_minutes is not None:
+            state.default_target_minutes = clamp(safe_int(study_minutes), 1, 240)
+        if break_minutes is not None:
+            break_seconds = safe_int(break_minutes) * 60
+        if break_seconds is not None:
+            state.default_break_seconds = clamp(safe_int(break_seconds), 5, 3600)
+        if state.status == "idle":
+            state.target_minutes = state.default_target_minutes
+            state.break_seconds = state.default_break_seconds
+        if distance_threshold_cm is not None:
+            state.distance_threshold_cm = clamp_float(safe_float(distance_threshold_cm), 5, 200)
+        if yolo_confidence_threshold is not None:
+            state.yolo_confidence_threshold = clamp_float(safe_float(yolo_confidence_threshold), 0.05, 0.95)
+        settings = self.save_settings()
+        self.add_log(
+            "CONFIG",
+            (
+                f"系统参数更新：学习 {state.default_target_minutes} 分钟，"
+                f"休息 {state.default_break_seconds} 秒，"
+                f"超声波阈值 {state.distance_threshold_cm}cm，"
+                f"YOLO 阈值 {state.yolo_confidence_threshold}"
+            ),
+        )
+        return {"settings": settings, **self.current_settings()}
 
     def update_session_defaults(self, study_minutes=None, break_seconds=None, break_minutes=None):
         state = self.state
@@ -257,6 +312,99 @@ class StudyStore:
             for line in self.study_log.read_text(encoding="utf-8").splitlines()
             if line.startswith("[") and today in line
         ]
+
+    def abnormal_events(self, limit=8):
+        events = []
+        active_away = None
+        for line in self.today_logs():
+            item = parse_log_line(line)
+            if not item:
+                continue
+            event_type = item["type"]
+            message = item["message"]
+            if event_type == "AWAY":
+                if active_away:
+                    events.append(active_away)
+                active_away = {
+                    "kind": "away",
+                    "severity": "high",
+                    "title": "离座事件",
+                    "time": item["time"],
+                    "time_label": time_only(item["time"]),
+                    "start_time": item["time"],
+                    "start_label": time_only(item["time"]),
+                    "summary": short_text(message, 92),
+                    "reason": message,
+                    "distance_cm": parse_distance_cm(message),
+                    "alert_time": None,
+                    "alert_label": None,
+                    "return_time": None,
+                    "return_label": None,
+                    "duration_seconds": None,
+                    "duration_text": "持续中",
+                    "status": "未回座",
+                }
+            elif event_type == "ALERT":
+                if active_away:
+                    active_away["alert_time"] = item["time"]
+                    active_away["alert_label"] = time_only(item["time"])
+                    active_away["status"] = "已提醒"
+                else:
+                    events.append(
+                        {
+                            "kind": "alert",
+                            "severity": "high",
+                            "title": "离座提醒",
+                            "time": item["time"],
+                            "time_label": time_only(item["time"]),
+                            "summary": short_text(message, 92),
+                            "status": "已提醒",
+                        }
+                    )
+            elif event_type == "RETURN":
+                if active_away:
+                    active_away["return_time"] = item["time"]
+                    active_away["return_label"] = time_only(item["time"])
+                    duration = seconds_between(active_away["start_time"], item["time"])
+                    active_away["duration_seconds"] = duration
+                    active_away["duration_text"] = fmt_duration(duration)
+                    active_away["status"] = "已回座"
+                    active_away["severity"] = "medium"
+                    events.append(active_away)
+                    active_away = None
+            elif event_type == "REMIND":
+                events.append(
+                    {
+                        "kind": "remind",
+                        "severity": "medium",
+                        "title": "家长提醒",
+                        "time": item["time"],
+                        "time_label": time_only(item["time"]),
+                        "summary": short_text(message, 92),
+                        "status": "已发送",
+                    }
+                )
+            elif event_type == "ERROR":
+                events.append(
+                    {
+                        "kind": "error",
+                        "severity": "high",
+                        "title": "设备/服务异常",
+                        "time": item["time"],
+                        "time_label": time_only(item["time"]),
+                        "summary": short_text(message, 92),
+                        "status": "需检查",
+                    }
+                )
+        if active_away:
+            events.append(active_away)
+        events = sorted(events, key=lambda event: event.get("time", ""), reverse=True)
+        return {
+            "items": events[:limit],
+            "total": len(events),
+            "open_away": sum(1 for event in events if event.get("kind") == "away" and event.get("status") != "已回座"),
+            "latest": events[0] if events else None,
+        }
 
     def today_stats(self):
         logs = self.today_logs()
@@ -381,8 +529,21 @@ def safe_int(value):
         return 0
 
 
+def safe_float(value, default=0):
+    try:
+        if value is None or value == "":
+            return float(default)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 def clamp(value, minimum, maximum):
     return max(minimum, min(maximum, safe_int(value)))
+
+
+def clamp_float(value, minimum, maximum):
+    return max(float(minimum), min(float(maximum), safe_float(value, minimum)))
 
 
 def parse_chinese_duration(text):
@@ -398,6 +559,43 @@ def parse_chinese_duration(text):
         + safe_int(minutes.group(1) if minutes else 0) * 60
         + safe_int(seconds.group(1) if seconds else 0)
     )
+
+
+def parse_log_line(line):
+    match = re.match(r"^\[(?P<time>[^\]]+)\]\s+\[(?P<type>[^\]]+)\]\s*(?P<message>.*)$", line or "")
+    if not match:
+        return None
+    return match.groupdict()
+
+
+def time_only(value):
+    return str(value or "")[11:] or "--:--:--"
+
+
+def short_text(value, limit=90):
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def parse_distance_cm(text):
+    match = re.search(r"距离\s*([0-9]+(?:\.[0-9]+)?)\s*cm", text or "")
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def seconds_between(start_text, end_text):
+    try:
+        start = datetime.strptime(start_text, "%Y-%m-%d %H:%M:%S")
+        end = datetime.strptime(end_text, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return 0
+    return max(0, int((end - start).total_seconds()))
 
 
 def trend_duration_seconds(range_key):

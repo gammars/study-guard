@@ -19,6 +19,7 @@
       <div class="nav-actions">
         <span class="system-pill success"><i></i>设备在线</span>
         <time class="nav-time" id="parentClock">--</time>
+        <a class="nav-link" href="/diagnostics">设备自检</a>
         <a class="nav-link" href="/student">学生端</a>
       </div>
     </header>
@@ -37,13 +38,6 @@
     </section>
 
     <section class="metric-grid parent-metrics">
-      <article class="metric-card accent-green">
-        <span class="metric-icon user"></span>
-        <div>
-          <p>当前座位</p>
-          <strong id="seatText">--</strong>
-        </div>
-      </article>
       <article class="metric-card accent-blue">
         <span class="metric-icon clock"></span>
         <div>
@@ -81,17 +75,21 @@
             <span class="eyebrow">Live View</span>
             <h2>实时画面</h2>
           </div>
-          <button class="ghost-button" id="cameraToggle">开启摄像头</button>
+          <div class="camera-actions">
+            <button class="ghost-button" data-action="photo">拍照记录</button>
+            <button class="ghost-button" id="cameraToggle">开启摄像头</button>
+          </div>
         </div>
         <div class="parent-video-box">
           <div class="camera-placeholder" id="cameraPlaceholder">摄像头未开启</div>
           <img id="parentVideo" class="video-feed hidden" data-src="/api/video" alt="实时摄像头画面">
-          <span class="vision-tag" id="parentPresenceTag">检测状态：--</span>
         </div>
         <div class="camera-facts">
+          <span>检测状态：<strong id="parentPresenceTag" class="detection-status uncertain">--</strong></span>
           <span>检测到人：<strong id="parentPresenceText">--</strong></span>
           <span>距离传感器：<strong id="parentDistanceInline">-- cm</strong></span>
           <span>最后更新：<strong id="parentLastUpdated">--</strong></span>
+          <p class="fusion-explain" id="parentFusionExplain">融合判断：超声波与视觉结果一致时为高置信；结果冲突时标记为不确定。</p>
         </div>
       </article>
 
@@ -141,9 +139,9 @@
             <h2>快捷操作</h2>
           </div>
         </div>
-        <button class="quick-action blue" data-action="photo"><span class="metric-icon camera"></span><strong>拍照记录</strong></button>
+        <button class="quick-action primary-remind" data-action="remind"><span class="metric-icon bell"></span><span class="quick-action-copy"><strong>提醒学生</strong><em>向学生端推送文字与语音提醒</em></span></button>
+        <button class="quick-action blue" data-action="settings"><span class="metric-icon report"></span><span class="quick-action-copy"><strong>参数设置</strong><em>学习、休息与检测阈值</em></span></button>
         <button class="quick-action teal" data-action="env"><span class="metric-icon leaf"></span><strong>读取环境</strong></button>
-        <button class="quick-action purple" data-action="remind"><span class="metric-icon bell"></span><strong>提醒学生</strong></button>
         <button class="quick-action amber" data-action="report"><span class="metric-icon report"></span><strong>生成日报</strong></button>
       </article>
 
@@ -195,6 +193,17 @@
         </div>
       </article>
 
+      <article class="surface-card abnormal-panel">
+        <div class="section-head compact">
+          <div>
+            <span class="eyebrow">Alerts</span>
+            <h2>异常事件</h2>
+          </div>
+          <span class="soft-badge alert-badge" id="abnormalCount">0 条</span>
+        </div>
+        <div class="abnormal-list" id="abnormalList"></div>
+      </article>
+
       <article class="surface-card logs-panel">
         <div class="section-head compact">
           <div>
@@ -215,6 +224,78 @@
         <div class="trace-list parent-trace-list" id="traceList"></div>
       </article>
     </section>
+
+    <div class="settings-modal hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="settings-dialog surface-card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Settings</span>
+            <h2 id="settingsTitle">参数设置</h2>
+          </div>
+          <button class="ghost-button compact-button" id="closeSettings">关闭</button>
+        </div>
+        <div class="settings-grid">
+          <label>
+            <span>默认学习时长（分钟）</span>
+            <input id="settingStudyMinutes" type="number" min="1" max="240" step="1">
+          </label>
+          <label>
+            <span>默认休息时长（秒）</span>
+            <input id="settingBreakSeconds" type="number" min="5" max="3600" step="5">
+          </label>
+          <label>
+            <span>超声波离座阈值（cm）</span>
+            <input id="settingDistanceThreshold" type="number" min="5" max="200" step="0.1">
+          </label>
+          <label>
+            <span>YOLO 置信度阈值</span>
+            <input id="settingYoloThreshold" type="number" min="0.05" max="0.95" step="0.01">
+          </label>
+        </div>
+        <p class="settings-path" id="settingsPath">settings.json</p>
+        <div class="settings-actions">
+          <button class="ghost-button" id="reloadSettings">重新读取</button>
+          <button class="primary-button" id="saveSettings">保存参数</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="report-modal hidden" id="reportModal" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+      <section class="report-dialog surface-card">
+        <div class="report-header">
+          <div>
+            <span class="eyebrow">Daily Report</span>
+            <h2 id="reportTitle">StudyGuard 学习日报</h2>
+            <p id="reportSubtitle">正在生成...</p>
+          </div>
+          <button class="ghost-button compact-button" id="closeReport">关闭</button>
+        </div>
+        <div class="report-loading" id="reportLoading">正在整理今日学习数据...</div>
+        <div class="report-content hidden" id="reportContent">
+          <div class="report-score-card">
+            <span>专注评分</span>
+            <strong id="reportFocusScore">--</strong>
+            <em>基于有效学习、离座与提醒综合评估</em>
+          </div>
+          <div class="report-metrics">
+            <article><span>今日学习总时长</span><strong id="reportTotalStudy">--</strong></article>
+            <article><span>有效学习时长</span><strong id="reportEffectiveStudy">--</strong></article>
+            <article><span>离座次数</span><strong id="reportAwayCount">--</strong></article>
+            <article><span>最长离座时长</span><strong id="reportLongestAway">--</strong></article>
+            <article><span>提醒次数</span><strong id="reportAlertCount">--</strong></article>
+            <article><span>环境均值 / 最近环境</span><strong id="reportEnvironment">--</strong></article>
+          </div>
+          <section class="report-section">
+            <h3>异常事件列表</h3>
+            <div class="report-event-list" id="reportEvents"></div>
+          </section>
+          <section class="report-section advice">
+            <h3>AI 学习建议</h3>
+            <p id="reportAdvice">--</p>
+          </section>
+        </div>
+      </section>
+    </div>
   </main>
 
   <script src="/static/main.js"></script>

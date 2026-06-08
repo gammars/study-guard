@@ -87,8 +87,8 @@ def create_studyguard_mcp(tools):
     def confirm_return() -> dict:
         return tools.call("confirm_return")
 
-    @mcp.tool(description="查询学习日志。query_type 可为 recent、today、away、alert、env、start、end。")
-    def query_study_log(query_type: str = "recent", date: str | None = None, limit: int = 8) -> dict:
+    @mcp.tool(description="查询学习日志。query_type 可为 recent、today、away、alert、break_start、break_end、button、config、env、error、photo、pomodoro、remind、report、return、start、status、end。默认返回 50 条，适合统计今日离座/提醒次数。")
+    def query_study_log(query_type: str = "recent", date: str | None = None, limit: int = 50) -> dict:
         return tools.call("query_study_log", query_type=query_type, date=date, limit=limit)
 
     @mcp.tool(description="生成今天的学习日报。")

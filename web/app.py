@@ -1,5 +1,6 @@
 import sys
 import json
+import re
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, stream_with_context
@@ -11,9 +12,10 @@ if str(ROOT) not in sys.path:
 
 from agent.openai_compatible_agent import OpenAICompatibleMCPAgent
 from server.hardware import Hardware
+from server.health import run_health_check
 from server.mcp_server import create_studyguard_mcp
 from server.monitor_loop import MonitorLoop
-from server.state import StudyStore
+from server.state import StudyStore, fmt_duration, now_text, seconds_between, today_text
 from server.tools import StudyTools
 from server.tts import TTSService
 from server.asr import MimoASRService
@@ -25,6 +27,10 @@ CORS(app)
 store = StudyStore(ROOT)
 store.prune_logs_to_today()
 hardware = Hardware(ROOT / "photos")
+hardware.apply_runtime_settings(
+    distance_threshold_cm=store.state.distance_threshold_cm,
+    yolo_confidence_threshold=store.state.yolo_confidence_threshold,
+)
 tools = StudyTools(store, hardware)
 mcp_server = create_studyguard_mcp(tools)
 agent = OpenAICompatibleMCPAgent(mcp_server, store, ROOT)
@@ -63,10 +69,16 @@ def parent():
     return render_template("parent.html")
 
 
+@app.route("/diagnostics")
+def diagnostics():
+    return render_template("diagnostics.html")
+
+
 @app.route("/api/state")
 def api_state():
     data = store.state.snapshot()
     data["today_stats"] = store.today_stats()
+    data["abnormal_events"] = store.abnormal_events(limit=8)
     data["recent_logs"] = store.recent_logs(limit=8)
     data["trend"] = store.trend_data(
         request.args.get("trend_range", "30m"),
@@ -74,6 +86,162 @@ def api_state():
         request.args.get("end"),
     )
     return jsonify(data)
+
+
+@app.route("/api/settings", methods=["GET", "POST"])
+def api_settings():
+    if request.method == "GET":
+        settings = store.current_settings()
+        settings["distance_threshold_cm"] = hardware.distance_threshold_cm
+        settings["yolo_confidence_threshold"] = hardware._yolo_confidence
+        return jsonify(settings)
+
+    payload = request.get_json(force=True) or {}
+    result = store.update_system_settings(
+        study_minutes=payload.get("default_target_minutes"),
+        break_seconds=payload.get("default_break_seconds"),
+        distance_threshold_cm=payload.get("distance_threshold_cm"),
+        yolo_confidence_threshold=payload.get("yolo_confidence_threshold"),
+    )
+    applied = hardware.apply_runtime_settings(
+        distance_threshold_cm=store.state.distance_threshold_cm,
+        yolo_confidence_threshold=store.state.yolo_confidence_threshold,
+    )
+    result["hardware"] = applied
+    return jsonify(result)
+
+
+@app.route("/api/health")
+def api_health():
+    mode = request.args.get("mode", "full")
+    return jsonify(run_health_check(store, hardware, agent, button_result=button_result, mode=mode))
+
+
+@app.route("/api/report/ui")
+def api_ui_report():
+    role = request.args.get("role", "student")
+    report = build_ui_report(role)
+    report["advice"] = None
+    report["advice_status"] = "pending"
+    return jsonify(report)
+
+
+@app.route("/api/report/advice", methods=["POST"])
+def api_report_advice():
+    payload = request.get_json(silent=True) or {}
+    role = payload.get("role") or request.args.get("role", "student")
+    report = payload.get("report") if isinstance(payload.get("report"), dict) else build_ui_report(role)
+    try:
+        advice = agent.report_advice(report_payload_for_advice(report), role=role)
+        return jsonify({"success": True, "advice": advice, "advice_status": "ready"})
+    except Exception as exc:
+        store.add_log("ERROR", f"日报 AI 建议生成失败：{exc}")
+        return jsonify(
+            {
+                "success": True,
+                "advice": "今日建议：保持固定学习节奏；离座或提醒偏多时，先补充饮水、整理桌面，再开始下一轮学习。",
+                "advice_status": "fallback",
+            }
+        )
+
+
+def build_ui_report(role):
+    stats = store.today_stats()
+    trend = store.trend_data("24h")
+    distribution = trend.get("distribution", {})
+    seconds = distribution.get("seconds", {})
+    abnormal = store.abnormal_events(limit=20)
+    env_summary = report_environment_summary()
+
+    effective_seconds = int(seconds.get("studying") or 0) + int(seconds.get("uncertain") or 0)
+    if effective_seconds <= 0:
+        effective_seconds = max(0, int(stats.get("focus_seconds") or 0) - int(stats.get("away_count") or 0) * 30)
+    longest_away_seconds = longest_away_duration(abnormal.get("items", []))
+    focus_score = report_focus_score(
+        total_seconds=int(stats.get("focus_seconds") or 0),
+        effective_seconds=effective_seconds,
+        away_count=int(stats.get("away_count") or 0),
+        alert_count=int(stats.get("alert_count") or 0),
+    )
+
+    return {
+        "success": True,
+        "role": role,
+        "date": today_text(),
+        "generated_at": now_text(),
+        "summary": {
+            "total_study_seconds": int(stats.get("focus_seconds") or 0),
+            "total_study_text": stats.get("focus_text") or fmt_duration(0),
+            "effective_study_seconds": effective_seconds,
+            "effective_study_text": fmt_duration(effective_seconds),
+            "away_count": int(stats.get("away_count") or 0),
+            "longest_away_seconds": longest_away_seconds,
+            "longest_away_text": fmt_duration(longest_away_seconds),
+            "alert_count": int(stats.get("alert_count") or 0),
+            "focus_score": focus_score,
+        },
+        "environment": env_summary,
+        "distribution": distribution,
+        "abnormal_events": abnormal,
+    }
+
+
+def report_environment_summary():
+    env_values = []
+    for line in store.today_logs():
+        if "[ENV]" not in line:
+            continue
+        match = re.search(r"温度\s*([0-9]+(?:\.[0-9]+)?)℃，湿度\s*([0-9]+(?:\.[0-9]+)?)%", line)
+        if match:
+            env_values.append((float(match.group(1)), float(match.group(2))))
+    recent = store.state.last_environment or {}
+    average_temperature = round(sum(item[0] for item in env_values) / len(env_values), 1) if env_values else None
+    average_humidity = round(sum(item[1] for item in env_values) / len(env_values), 1) if env_values else None
+    return {
+        "sample_count": len(env_values),
+        "average_temperature": average_temperature,
+        "average_humidity": average_humidity,
+        "average_text": f"{average_temperature}℃ / {average_humidity}%" if average_temperature is not None else "暂无环境均值",
+        "recent_temperature": recent.get("temperature"),
+        "recent_humidity": recent.get("humidity"),
+        "recent_text": (
+            f"{recent.get('temperature')}℃ / {recent.get('humidity')}%"
+            if recent.get("temperature") is not None and recent.get("humidity") is not None
+            else "暂无最近环境"
+        ),
+        "suggestion": recent.get("suggestion") or "暂无环境建议",
+        "level": recent.get("level") or "pending",
+    }
+
+
+def longest_away_duration(items):
+    durations = []
+    current_time = now_text()
+    for item in items or []:
+        if item.get("kind") != "away":
+            continue
+        duration = int(item.get("duration_seconds") or 0)
+        if not duration and item.get("start_time"):
+            duration = seconds_between(item.get("start_time"), current_time)
+        durations.append(duration)
+    return max(durations, default=0)
+
+
+def report_focus_score(total_seconds, effective_seconds, away_count, alert_count):
+    if total_seconds <= 0:
+        return 0
+    base = min(100, round(effective_seconds / max(1, total_seconds) * 100))
+    penalty = min(35, away_count * 4 + alert_count * 3)
+    return max(0, min(100, base - penalty))
+
+
+def report_payload_for_advice(report):
+    return {
+        "date": report["date"],
+        "summary": report["summary"],
+        "environment": report["environment"],
+        "abnormal_events": report["abnormal_events"].get("items", [])[:6],
+    }
 
 
 @app.route("/api/action", methods=["POST"])

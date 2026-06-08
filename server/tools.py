@@ -92,7 +92,7 @@ class StudyTools:
             "active_target_seconds": state.target_minutes * 60,
             "active_break_seconds": state.break_seconds,
             "active_break_text": fmt_duration(state.break_seconds),
-            "distance_threshold_cm": 40,
+            "distance_threshold_cm": getattr(self.hardware, "distance_threshold_cm", state.distance_threshold_cm),
             "vision_model": "YOLOv5n person detector",
             "vision_confidence_threshold": getattr(self.hardware, "_yolo_confidence", None),
             "demo_mode": getattr(self.hardware, "demo_mode", None),
@@ -330,14 +330,31 @@ class StudyTools:
         self.store.add_log("BUTTON", "按键松开：通知学生端停止语音输入并转文字")
         return {"event": "voice_recording_stop", "voice_event": event}
 
-    def query_study_log(self, query_type="recent", date=None, limit=8):
-        event_map = {"away": "AWAY", "alert": "ALERT", "env": "ENV", "start": "START", "end": "END"}
+    def query_study_log(self, query_type="recent", date=None, limit=50):
+        event_map = {
+            "away": "AWAY",
+            "alert": "ALERT",
+            "break_end": "BREAK_END",
+            "break_start": "BREAK_START",
+            "button": "BUTTON",
+            "config": "CONFIG",
+            "end": "END",
+            "env": "ENV",
+            "error": "ERROR",
+            "photo": "PHOTO",
+            "pomodoro": "POMODORO",
+            "remind": "REMIND",
+            "report": "REPORT",
+            "return": "RETURN",
+            "start": "START",
+            "status": "STATUS",
+        }
         event_type = event_map.get(query_type)
         if query_type == "today":
             logs = self.store.today_logs()[-limit:]
         else:
             logs = self.store.recent_logs(limit=limit, event_type=event_type)
-        return {"success": True, "query_type": query_type, "date": date or today_text(), "result": logs}
+        return {"success": True, "query_type": query_type, "event_type": event_type, "date": date or today_text(), "result": logs}
 
     def generate_daily_report(self, date=None):
         state = self.store.state
