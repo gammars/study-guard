@@ -8,6 +8,8 @@ let voiceRecorder = null;
 let voiceEventsInitialized = false;
 let lastVoiceEventId = 0;
 let handlingVoiceEvents = false;
+let audioEventsInitialized = false;
+let lastAudioEventId = 0;
 const spokenMessages = new Set();
 const ttsQueue = [];
 
@@ -444,7 +446,6 @@ function renderMessages(messages) {
       const message = String(item.message || "");
       return !message.startsWith("问：") && !message.startsWith("答：");
     });
-    speakNewStudentMessages(filtered);
     target.innerHTML = filtered.slice(-3).map((item) =>
       `<div class="student-message-row">
         <div class="message-bell">铃</div>
@@ -629,10 +630,28 @@ async function refreshState() {
   renderLogs(data.recent_logs);
   renderTrace(data.tool_trace);
   await processVoiceEvents(data.voice_events);
+  processAudioEvents(data.audio_events);
+}
+
+function processAudioEvents(events) {
+  if (role !== "student") return;
+  const items = (events || []).slice().sort((left, right) => Number(left.id || 0) - Number(right.id || 0));
+  if (!audioEventsInitialized) {
+    lastAudioEventId = Math.max(0, ...items.map((item) => Number(item.id || 0)));
+    audioEventsInitialized = true;
+    return;
+  }
+  items.forEach((event) => {
+    const eventId = Number(event.id || 0);
+    if (eventId <= lastAudioEventId) return;
+    lastAudioEventId = Math.max(lastAudioEventId, eventId);
+    const text = String(event.text || "").trim();
+    if (text) speakText(text);
+  });
 }
 
 async function processVoiceEvents(events) {
-  if (role !== "student" || !$("voiceInput")) return;
+  if (role !== "student") return;
   const items = (events || []).slice().sort((left, right) => Number(left.id || 0) - Number(right.id || 0));
   if (!voiceEventsInitialized) {
     lastVoiceEventId = Math.max(0, ...items.map((item) => Number(item.id || 0)));
@@ -649,6 +668,9 @@ async function processVoiceEvents(events) {
         await startVoiceRecording();
       } else if (event.action === "stop") {
         await stopVoiceRecording();
+      } else if (event.action === "send_chat") {
+        const text = String(event.text || "").trim();
+        if (text) await sendChatText(text);
       }
     }
   } finally {

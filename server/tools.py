@@ -7,6 +7,14 @@ class StudyTools:
     def __init__(self, store, hardware):
         self.store = store
         self.hardware = hardware
+        self.tts_service = None
+        self.pi_audio_service = None
+
+    def set_tts_service(self, tts_service):
+        self.tts_service = tts_service
+
+    def set_pi_audio_service(self, pi_audio_service):
+        self.pi_audio_service = pi_audio_service
 
     def call(self, name, **kwargs):
         method = getattr(self, name)
@@ -98,6 +106,8 @@ class StudyTools:
             "demo_mode": getattr(self.hardware, "demo_mode", None),
             "tts_enabled": True,
             "asr_enabled": True,
+            "pi_audio_input_device": getattr(self.pi_audio_service, "input_device", None),
+            "pi_audio_output_device": getattr(self.tts_service, "output_device", None),
             "led_color": state.led_color,
         }
 
@@ -136,7 +146,16 @@ class StudyTools:
         silent_tts = bool(getattr(self.store.state, "silent_student_tts", False))
         source = "ai_tool_side_effect" if silent_tts else None
         item = self.store.add_message("student", message, silent_tts=silent_tts, source=source)
-        return {"success": True, "time": item["time"], "message": message, "silent_tts": silent_tts}
+        audio_event = None
+        if not silent_tts:
+            audio_event = self.store.add_audio_event(message, source="send_student_message")
+        return {
+            "success": True,
+            "time": item["time"],
+            "message": message,
+            "silent_tts": silent_tts,
+            "audio_event": audio_event,
+        }
 
     def send_parent_message(self, message):
         item = self.store.add_message("parent", message)
@@ -321,14 +340,18 @@ class StudyTools:
         return {"event": "acknowledge_studying"}
 
     def handle_button_hold_start(self):
-        event = self.store.add_voice_event("start", source="button")
-        self.store.add_log("BUTTON", "按键长按：通知学生端开始语音输入")
-        return {"event": "voice_recording_start", "voice_event": event}
+        if not self.pi_audio_service:
+            self.store.add_log("ERROR", "按键长按：树莓派本地语音服务未初始化")
+            return {"success": False, "event": "pi_audio_unavailable"}
+        result = self.pi_audio_service.start_recording()
+        return {"event": "pi_voice_recording_start", "result": result}
 
     def handle_button_hold_end(self):
-        event = self.store.add_voice_event("stop", source="button")
-        self.store.add_log("BUTTON", "按键松开：通知学生端停止语音输入并转文字")
-        return {"event": "voice_recording_stop", "voice_event": event}
+        if not self.pi_audio_service:
+            self.store.add_log("ERROR", "按键松开：树莓派本地语音服务未初始化")
+            return {"success": False, "event": "pi_audio_unavailable"}
+        result = self.pi_audio_service.stop_recording_and_send()
+        return {"event": "pi_voice_recording_stop", "result": result}
 
     def query_study_log(self, query_type="recent", date=None, limit=50):
         event_map = {

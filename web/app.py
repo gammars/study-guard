@@ -15,6 +15,7 @@ from server.hardware import Hardware
 from server.health import run_health_check
 from server.mcp_server import create_studyguard_mcp
 from server.monitor_loop import MonitorLoop
+from server.pi_audio import PiButtonAudioService
 from server.state import StudyStore, fmt_duration, now_text, seconds_between, today_text
 from server.tools import StudyTools
 from server.tts import TTSService
@@ -36,6 +37,9 @@ mcp_server = create_studyguard_mcp(tools)
 agent = OpenAICompatibleMCPAgent(mcp_server, store, ROOT)
 tts_service = TTSService(ROOT)
 asr_service = MimoASRService(ROOT)
+pi_audio_service = PiButtonAudioService(ROOT, store, asr_service, agent)
+tools.set_tts_service(tts_service)
+tools.set_pi_audio_service(pi_audio_service)
 hardware.set_led_color("off")
 store.state.last_environment = {
     "temperature": None,

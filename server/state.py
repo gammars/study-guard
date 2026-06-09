@@ -53,7 +53,9 @@ class StudyState:
     messages: list = field(default_factory=list)
     tool_trace: list = field(default_factory=list)
     voice_events: list = field(default_factory=list)
+    audio_events: list = field(default_factory=list)
     voice_event_id: int = 0
+    audio_event_id: int = 0
     silent_student_tts: bool = False
 
     def current_elapsed(self):
@@ -106,6 +108,7 @@ class StudyState:
             "environment": self.last_environment,
             "tool_trace": self.tool_trace[-12:],
             "voice_events": self.voice_events[-10:],
+            "audio_events": self.audio_events[-20:],
             "session_id": self.session_id,
             "today": today_text(),
         }
@@ -254,7 +257,7 @@ class StudyStore:
             file.write(json.dumps(item, ensure_ascii=False) + "\n")
         return item
 
-    def add_voice_event(self, action, source="button"):
+    def add_voice_event(self, action, source="button", text=None):
         self.state.voice_event_id += 1
         item = {
             "id": self.state.voice_event_id,
@@ -262,9 +265,25 @@ class StudyStore:
             "action": action,
             "source": source,
         }
+        if text is not None:
+            item["text"] = text
         self.state.voice_events.append(item)
         if len(self.state.voice_events) > 30:
             self.state.voice_events = self.state.voice_events[-30:]
+        return item
+
+    def add_audio_event(self, text, source="system"):
+        self.state.audio_event_id += 1
+        item = {
+            "id": self.state.audio_event_id,
+            "time": now_text(),
+            "target": "student",
+            "text": text,
+            "source": source,
+        }
+        self.state.audio_events.append(item)
+        if len(self.state.audio_events) > 80:
+            self.state.audio_events = self.state.audio_events[-80:]
         return item
 
     def add_state_sample(self, seat=None):
